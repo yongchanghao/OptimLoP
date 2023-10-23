@@ -1,0 +1,6 @@
+gymnasium[atari,accept-rom-license]
+stable_baselines3
+torch
+tensorboard
+opencv-python
+wandb

@@ -1,0 +1,5 @@
+venv
+wandb
+runs
+outputs
+__pycache__
