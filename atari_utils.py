@@ -336,6 +336,7 @@ def make_atari_env(task, seed, training_num, test_num, **kwargs):
             seed=seed,
             episodic_life=True,
             reward_clip=True,
+            full_action_space=True,
             stack_num=kwargs.get("frame_stack", 4),
         )
         test_envs = envpool.make_gymnasium(
@@ -344,6 +345,7 @@ def make_atari_env(task, seed, training_num, test_num, **kwargs):
             seed=seed,
             episodic_life=False,
             reward_clip=False,
+            full_action_space=True,
             stack_num=kwargs.get("frame_stack", 4),
         )
     else:

@@ -2,23 +2,87 @@ import argparse
 import datetime
 import os
 import pprint
-import sys
 
 import numpy as np
 import torch
-
-from atari_utils import make_atari_env, Rainbow
-from torch.utils.tensorboard import SummaryWriter
-
 from tianshou.data import Collector, PrioritizedVectorReplayBuffer, VectorReplayBuffer
 from tianshou.policy import RainbowPolicy
 from tianshou.trainer import OffpolicyTrainer
-from tianshou.utils import TensorboardLogger, WandbLogger
+from tianshou.utils import WandbLogger
+from torch.utils.tensorboard import SummaryWriter
+
+from atari_utils import Rainbow, make_atari_env
+
+
+class MultiVisitWandbLogger(WandbLogger):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.num_visit = None
+        self.name = None
+
+    def log_train_data(self, collect_result: dict, step: int) -> None:
+        """Use writer to log statistics generated during training.
+
+        :param collect_result: a dict containing information of data collected in
+            training stage, i.e., returns of collector.collect().
+        :param int step: stands for the timestep the collect_result being logged.
+        """
+        if collect_result["n/ep"] > 0:
+            if step - self.last_log_train_step >= self.train_interval:
+                log_data = {
+                    f"train/episode/{self.name}/v{self.num_visit}": collect_result["n/ep"],
+                    f"train/reward/{self.name}/v{self.num_visit}": collect_result["rew"],
+                    f"train/length/{self.name}/v{self.num_visit}": collect_result["len"],
+                }
+                self.write(f"train/env_step/{self.name}/v{self.num_visit}", step, log_data)
+                self.last_log_train_step = step
+
+    def log_test_data(self, collect_result: dict, step: int) -> None:
+        """Use writer to log statistics generated during evaluating.
+
+        :param collect_result: a dict containing information of data collected in
+            evaluating stage, i.e., returns of collector.collect().
+        :param int step: stands for the timestep the collect_result being logged.
+        """
+        assert collect_result["n/ep"] > 0
+        if step - self.last_log_test_step >= self.test_interval:
+            log_data = {
+                f"test/env_step/{self.name}/v{self.num_visit}": step,
+                f"test/reward/{self.name}/v{self.num_visit}": collect_result["rew"],
+                f"test/length/{self.name}/v{self.num_visit}": collect_result["len"],
+                f"test/reward_std/{self.name}/v{self.num_visit}": collect_result["rew_std"],
+                f"test/length_std/{self.name}/v{self.num_visit}": collect_result["len_std"],
+            }
+            self.write(f"test/env_step/{self.name}/v{self.num_visit}", step, log_data)
+            self.last_log_test_step = step
+
+    def log_update_data(self, update_result: dict, step: int) -> None:
+        """Use writer to log statistics generated during updating.
+
+        :param update_result: a dict containing information of data collected in
+            updating stage, i.e., returns of policy.update().
+        :param int step: stands for the timestep the collect_result being logged.
+        """
+        if step - self.last_log_update_step >= self.update_interval:
+            log_data = {f"update/{k}/{self.name}/v{self.num_visit}": v for k, v in update_result.items()}
+            self.write(f"update/gradient_step/{self.name}/v{self.num_visit}", step, log_data)
+            self.last_log_update_step = step
 
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, default="Alien-v5")
+    parser.add_argument(
+        "--tasks",
+        type=str,
+        nargs="+",
+        default=[
+            "Alien-v5",
+            "Atlantis-v5",
+            "Boxing-v5",
+            "Breakout-v5",
+            "Centipede-v5",
+        ],
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--scale-obs", type=int, default=0)
     parser.add_argument("--eps-test", type=float, default=0.005)
@@ -50,6 +114,7 @@ def get_args():
     parser.add_argument("--test-num", type=int, default=10)
     parser.add_argument("--logdir", type=str, default="log")
     parser.add_argument("--render", type=float, default=0.0)
+    parser.add_argument("--num-visit", type=int, default=4)
     parser.add_argument(
         "--device",
         type=str,
@@ -58,113 +123,26 @@ def get_args():
     parser.add_argument("--frames-stack", type=int, default=4)
     parser.add_argument("--resume-path", type=str, default=None)
     parser.add_argument("--resume-id", type=str, default=None)
-    parser.add_argument(
-        "--logger",
-        type=str,
-        default="tensorboard",
-        choices=["tensorboard", "wandb"],
-    )
     parser.add_argument("--wandb-project", type=str, default="atari.benchmark")
-    parser.add_argument(
-        "--watch",
-        default=False,
-        action="store_true",
-        help="watch the play of pre-trained policy only",
-    )
     parser.add_argument("--save-buffer-name", type=str, default=None)
     return parser.parse_args()
 
 
-def test_rainbow(args=get_args()):
+def rainbow(task, net, optim, policy, buffer, logger, log_path, num_visit, args=get_args()):
     env, train_envs, test_envs = make_atari_env(
-        args.task,
+        task,
         args.seed,
         args.training_num,
         args.test_num,
         scale=args.scale_obs,
         frame_stack=args.frames_stack,
     )
-    args.state_shape = env.observation_space.shape or env.observation_space.n
-    args.action_shape = env.action_space.shape or env.action_space.n
-    # should be N_FRAMES x H x W
-    print("Observations shape:", args.state_shape)
-    print("Actions shape:", args.action_shape)
-    # seed
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    # define model
-    net = Rainbow(
-        *args.state_shape,
-        args.action_shape,
-        args.num_atoms,
-        args.noisy_std,
-        args.device,
-        is_dueling=not args.no_dueling,
-        is_noisy=not args.no_noisy,
-    )
-    optim = torch.optim.Adam(net.parameters(), lr=args.lr)
-    # define policy
-    policy = RainbowPolicy(
-        model=net,
-        optim=optim,
-        discount_factor=args.gamma,
-        action_space=env.action_space,
-        num_atoms=args.num_atoms,
-        v_min=args.v_min,
-        v_max=args.v_max,
-        estimation_step=args.n_step,
-        target_update_freq=args.target_update_freq,
-    ).to(args.device)
-    # load a previous policy
-    if args.resume_path:
-        policy.load_state_dict(torch.load(args.resume_path, map_location=args.device))
-        print("Loaded agent from: ", args.resume_path)
-    # replay buffer: `save_last_obs` and `stack_num` can be removed together
-    # when you have enough RAM
-    if args.no_priority:
-        buffer = VectorReplayBuffer(
-            args.buffer_size,
-            buffer_num=len(train_envs),
-            ignore_obs_next=True,
-            save_only_last_obs=True,
-            stack_num=args.frames_stack,
-        )
-    else:
-        buffer = PrioritizedVectorReplayBuffer(
-            args.buffer_size,
-            buffer_num=len(train_envs),
-            ignore_obs_next=True,
-            save_only_last_obs=True,
-            stack_num=args.frames_stack,
-            alpha=args.alpha,
-            beta=args.beta,
-            weight_norm=not args.no_weight_norm,
-        )
+    assert args.state_shape == (env.observation_space.shape or env.observation_space.n)
+    assert args.action_shape == (env.action_space.shape or env.action_space.n)
+
     # collector
     train_collector = Collector(policy, train_envs, buffer, exploration_noise=True)
     test_collector = Collector(policy, test_envs, exploration_noise=True)
-
-    # log
-    now = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
-    args.algo_name = "rainbow"
-    log_name = os.path.join(args.task, args.algo_name, str(args.seed), now)
-    log_path = os.path.join(args.logdir, log_name)
-
-    # logger
-    if args.logger == "wandb":
-        logger = WandbLogger(
-            save_interval=1,
-            name=log_name.replace(os.path.sep, "__"),
-            run_id=args.resume_id,
-            config=args,
-            project=args.wandb_project,
-        )
-    writer = SummaryWriter(log_path)
-    writer.add_text("args", str(args))
-    if args.logger == "tensorboard":
-        logger = TensorboardLogger(writer)
-    else:  # wandb
-        logger.load(writer)
 
     def save_best_fn(policy):
         torch.save(policy.state_dict(), os.path.join(log_path, "policy.pth"))
@@ -172,7 +150,7 @@ def test_rainbow(args=get_args()):
     def stop_fn(mean_rewards: float) -> bool:
         if env.spec.reward_threshold:
             return mean_rewards >= env.spec.reward_threshold
-        if "Pong" in args.task:
+        if "Pong" in task:
             return mean_rewards >= 20
         return False
 
@@ -184,7 +162,7 @@ def test_rainbow(args=get_args()):
             eps = args.eps_train_final
         policy.set_eps(eps)
         if env_step % 1000 == 0:
-            logger.write("train/env_step", env_step, {"train/eps": eps})
+            logger.write(f"train/env_step/v{num_visit}", env_step, {"train/eps": eps})
         if not args.no_priority:
             if env_step <= args.beta_anneal_step:
                 beta = args.beta - env_step / args.beta_anneal_step * (args.beta - args.beta_final)
@@ -192,43 +170,10 @@ def test_rainbow(args=get_args()):
                 beta = args.beta_final
             buffer.set_beta(beta)
             if env_step % 1000 == 0:
-                logger.write("train/env_step", env_step, {"train/beta": beta})
+                logger.write(f"train/env_step/v{num_visit}", env_step, {"train/beta": beta})
 
     def test_fn(epoch, env_step):
         policy.set_eps(args.eps_test)
-
-    # watch agent's performance
-    def watch():
-        print("Setup test envs ...")
-        policy.eval()
-        policy.set_eps(args.eps_test)
-        test_envs.seed(args.seed)
-        if args.save_buffer_name:
-            print(f"Generate buffer with size {args.buffer_size}")
-            buffer = PrioritizedVectorReplayBuffer(
-                args.buffer_size,
-                buffer_num=len(test_envs),
-                ignore_obs_next=True,
-                save_only_last_obs=True,
-                stack_num=args.frames_stack,
-                alpha=args.alpha,
-                beta=args.beta,
-            )
-            collector = Collector(policy, test_envs, buffer, exploration_noise=True)
-            result = collector.collect(n_step=args.buffer_size)
-            print(f"Save buffer into {args.save_buffer_name}")
-            # Unfortunately, pickle will cause oom with 1M buffer size
-            buffer.save_hdf5(args.save_buffer_name)
-        else:
-            print("Testing agent ...")
-            test_collector.reset()
-            result = test_collector.collect(n_episode=args.test_num, render=args.render)
-        rew = result["rews"].mean()
-        print(f"Mean reward (over {result['n/ep']} episodes): {rew}")
-
-    if args.watch:
-        watch()
-        sys.exit(0)
 
     # test train_collector and start filling replay buffer
     train_collector.collect(n_step=args.batch_size * args.training_num)
@@ -252,7 +197,98 @@ def test_rainbow(args=get_args()):
     ).run()
 
     pprint.pprint(result)
-    watch()
+
+
+def test_rainbow(args=get_args()):
+    dummy_env, _, _ = make_atari_env(
+        args.tasks[0],
+        args.seed,
+        args.training_num,
+        args.test_num,
+        scale=args.scale_obs,
+        frame_stack=args.frames_stack,
+    )
+    args.state_shape = dummy_env.observation_space.shape or dummy_env.observation_space.n
+    args.action_shape = dummy_env.action_space.shape or dummy_env.action_space.n
+    # should be N_FRAMES x H x W
+    print("Observations shape:", args.state_shape)
+    print("Actions shape:", args.action_shape)
+    # seed
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    # define model
+    net = Rainbow(
+        *args.state_shape,
+        args.action_shape,
+        args.num_atoms,
+        args.noisy_std,
+        args.device,
+        is_dueling=not args.no_dueling,
+        is_noisy=not args.no_noisy,
+    )
+    optim = torch.optim.Adam(net.parameters(), lr=args.lr)
+    # define policy
+    policy = RainbowPolicy(
+        model=net,
+        optim=optim,
+        discount_factor=args.gamma,
+        action_space=dummy_env.action_space,
+        num_atoms=args.num_atoms,
+        v_min=args.v_min,
+        v_max=args.v_max,
+        estimation_step=args.n_step,
+        target_update_freq=args.target_update_freq,
+    ).to(args.device)
+    # load a previous policy
+    if args.resume_path:
+        policy.load_state_dict(torch.load(args.resume_path, map_location=args.device))
+        print("Loaded agent from: ", args.resume_path)
+    # replay buffer: `save_last_obs` and `stack_num` can be removed together
+    # when you have enough RAM
+    if args.no_priority:
+        buffer = VectorReplayBuffer(
+            args.buffer_size,
+            buffer_num=args.training_num,
+            ignore_obs_next=True,
+            save_only_last_obs=True,
+            stack_num=args.frames_stack,
+        )
+    else:
+        buffer = PrioritizedVectorReplayBuffer(
+            args.buffer_size,
+            buffer_num=args.training_num,
+            ignore_obs_next=True,
+            save_only_last_obs=True,
+            stack_num=args.frames_stack,
+            alpha=args.alpha,
+            beta=args.beta,
+            weight_norm=not args.no_weight_norm,
+        )
+
+    # log
+    now = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
+    args.algo_name = "rainbow"
+    log_name = os.path.join(args.algo_name, str(args.seed), now)
+    log_path = os.path.join(args.logdir, log_name)
+
+    # logger
+    logger = MultiVisitWandbLogger(
+        save_interval=1,
+        name=log_name.replace(os.path.sep, "__"),
+        run_id=args.resume_id,
+        config=args,
+        project=args.wandb_project,
+    )
+    writer = SummaryWriter(log_path)
+    writer.add_text("args", str(args))
+    logger.load(writer)
+
+    for visit in range(args.num_visit):
+        for i, task in enumerate(args.tasks):
+            print(f"Task {i}: {task}, visit {visit}")
+            logger.num_visit = visit
+            logger.name = task
+            rainbow(task, net, optim, policy, buffer, logger, log_path, i, args=args)
 
 
 if __name__ == "__main__":
