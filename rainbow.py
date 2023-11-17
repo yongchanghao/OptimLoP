@@ -8,65 +8,9 @@ import torch
 from tianshou.data import Collector, PrioritizedVectorReplayBuffer, VectorReplayBuffer
 from tianshou.policy import RainbowPolicy
 from tianshou.trainer import OffpolicyTrainer
-from tianshou.utils import WandbLogger
 from torch.utils.tensorboard import SummaryWriter
 
-from src.utils import Rainbow, make_atari_env
-
-
-class MultiVisitWandbLogger(WandbLogger):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.num_visit = None
-        self.name = None
-
-    def log_train_data(self, collect_result: dict, step: int) -> None:
-        """Use writer to log statistics generated during training.
-
-        :param collect_result: a dict containing information of data collected in
-            training stage, i.e., returns of collector.collect().
-        :param int step: stands for the timestep the collect_result being logged.
-        """
-        if collect_result["n/ep"] > 0:
-            if step - self.last_log_train_step >= self.train_interval:
-                log_data = {
-                    f"train/episode/{self.name}/v{self.num_visit}": collect_result["n/ep"],
-                    f"train/reward/{self.name}/v{self.num_visit}": collect_result["rew"],
-                    f"train/length/{self.name}/v{self.num_visit}": collect_result["len"],
-                }
-                self.write(f"train/env_step/{self.name}/v{self.num_visit}", step, log_data)
-                self.last_log_train_step = step
-
-    def log_test_data(self, collect_result: dict, step: int) -> None:
-        """Use writer to log statistics generated during evaluating.
-
-        :param collect_result: a dict containing information of data collected in
-            evaluating stage, i.e., returns of collector.collect().
-        :param int step: stands for the timestep the collect_result being logged.
-        """
-        assert collect_result["n/ep"] > 0
-        if step - self.last_log_test_step >= self.test_interval:
-            log_data = {
-                f"test/env_step/{self.name}/v{self.num_visit}": step,
-                f"test/reward/{self.name}/v{self.num_visit}": collect_result["rew"],
-                f"test/length/{self.name}/v{self.num_visit}": collect_result["len"],
-                f"test/reward_std/{self.name}/v{self.num_visit}": collect_result["rew_std"],
-                f"test/length_std/{self.name}/v{self.num_visit}": collect_result["len_std"],
-            }
-            self.write(f"test/env_step/{self.name}/v{self.num_visit}", step, log_data)
-            self.last_log_test_step = step
-
-    def log_update_data(self, update_result: dict, step: int) -> None:
-        """Use writer to log statistics generated during updating.
-
-        :param update_result: a dict containing information of data collected in
-            updating stage, i.e., returns of policy.update().
-        :param int step: stands for the timestep the collect_result being logged.
-        """
-        if step - self.last_log_update_step >= self.update_interval:
-            log_data = {f"update/{k}/{self.name}/v{self.num_visit}": v for k, v in update_result.items()}
-            self.write(f"update/gradient_step/{self.name}/v{self.num_visit}", step, log_data)
-            self.last_log_update_step = step
+from src.utils import MultiVisitWandbLogger, Rainbow, make_atari_env
 
 
 def get_args():
