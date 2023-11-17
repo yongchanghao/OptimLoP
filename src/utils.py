@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from tianshou.env import ShmemVectorEnv
 from tianshou.utils.net.discrete import NoisyLinear
+from tianshou.utils import WandbLogger
 from torch import Tensor, nn
 from torch.nn import functional as F
 
@@ -586,3 +587,65 @@ class CReLU(torch.nn.ReLU):
     def forward(self, input: Tensor) -> Tensor:
         half = input.shape[-1] // 2
         return torch.cat((F.relu(input[:, :half]), F.relu(-input[:, half:])), dim=-1)
+
+
+class MultiVisitWandbLogger(WandbLogger):
+    def __init__(self, names, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.names = names
+        self.current_name = None
+        self.base_env_steps = {name: 0 for name in names}
+
+    @property
+    def global_base_env_step(self):
+        return sum(self.base_env_steps.values())
+
+    @property
+    def task_base_env_step(self):
+        return self.base_env_steps[self.current_name]
+
+    def add_base_step(self, name, step):
+        self.base_env_steps[name] = step
+
+    def log_train_data(self, collect_result: dict, step: int) -> None:
+        """Use writer to log statistics generated during training.
+
+        :param collect_result: a dict containing information of data collected in
+            training stage, i.e., returns of collector.collect().
+        :param int step: stands for the timestep the collect_result being logged.
+        """
+        global_step = self.global_base_env_step + step
+        task_step = self.task_base_env_step + step
+
+        if collect_result["n/ep"] > 0:
+            if global_step - self.last_log_train_step >= self.train_interval:
+                log_data = {
+                    f"train/task_step/{self.current_name}": task_step,
+                    f"train/episode/{self.current_name}": collect_result["n/ep"],
+                    f"train/reward/{self.current_name}": collect_result["rew"],
+                    f"train/length/{self.current_name}": collect_result["len"],
+                }
+                self.write("train/global_step", global_step, log_data)
+                self.last_log_train_step = global_step
+
+    def log_test_data(self, collect_result: dict, step: int) -> None:
+        """Use writer to log statistics generated during evaluating.
+
+        :param collect_result: a dict containing information of data collected in
+            evaluating stage, i.e., returns of collector.collect().
+        :param int step: stands for the timestep the collect_result being logged.
+        """
+        global_step = self.global_base_env_step + step
+        task_step = self.task_base_env_step + step
+
+        assert collect_result["n/ep"] > 0
+        if global_step - self.last_log_test_step >= self.test_interval:
+            log_data = {
+                f"test/task_step/{self.current_name}": task_step,
+                f"test/reward/{self.current_name}": collect_result["rew"],
+                f"test/length/{self.current_name}": collect_result["len"],
+                f"test/reward_std/{self.current_name}": collect_result["rew_std"],
+                f"test/length_std/{self.current_name}": collect_result["len_std"],
+            }
+            self.write("test/global_step", global_step, log_data)
+            self.last_log_test_step = global_step

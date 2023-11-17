@@ -71,7 +71,7 @@ def get_args():
     return parser.parse_args()
 
 
-def rainbow(task, net, optim, policy, buffer, logger, log_path, num_visit, args=get_args()):
+def rainbow(task, net, optim, policy, buffer, logger, log_path, args=get_args()):
     env, train_envs, test_envs = make_atari_env(
         task,
         args.seed,
@@ -99,13 +99,14 @@ def rainbow(task, net, optim, policy, buffer, logger, log_path, num_visit, args=
 
     def train_fn(epoch, env_step):
         # nature DQN setting, linear decay in the first 1M steps
+        env_step += logger.global_base_env_step
         if env_step <= 1e6:
             eps = args.eps_train - env_step / 1e6 * (args.eps_train - args.eps_train_final)
         else:
             eps = args.eps_train_final
         policy.set_eps(eps)
         if env_step % 1000 == 0:
-            logger.write(f"train/env_step/v{num_visit}", env_step, {"train/eps": eps})
+            logger.write("train/env_step", env_step, {"train/eps": eps})
         if not args.no_priority:
             if env_step <= args.beta_anneal_step:
                 beta = args.beta - env_step / args.beta_anneal_step * (args.beta - args.beta_final)
@@ -113,7 +114,7 @@ def rainbow(task, net, optim, policy, buffer, logger, log_path, num_visit, args=
                 beta = args.beta_final
             buffer.set_beta(beta)
             if env_step % 1000 == 0:
-                logger.write(f"train/env_step/v{num_visit}", env_step, {"train/beta": beta})
+                logger.write("train/env_step", env_step, {"train/beta": beta})
 
     def test_fn(epoch, env_step):
         policy.set_eps(args.eps_test)
@@ -121,7 +122,7 @@ def rainbow(task, net, optim, policy, buffer, logger, log_path, num_visit, args=
     # test train_collector and start filling replay buffer
     train_collector.collect(n_step=args.batch_size * args.training_num)
     # trainer
-    result = OffpolicyTrainer(
+    trainer = OffpolicyTrainer(
         policy=policy,
         train_collector=train_collector,
         test_collector=test_collector,
@@ -137,9 +138,10 @@ def rainbow(task, net, optim, policy, buffer, logger, log_path, num_visit, args=
         logger=logger,
         update_per_step=args.update_per_step,
         test_in_train=False,
-    ).run()
-
+    )
+    result = trainer.run()
     pprint.pprint(result)
+    return trainer.env_step
 
 
 def test_rainbow(args=get_args()):
@@ -216,6 +218,7 @@ def test_rainbow(args=get_args()):
 
     # logger
     logger = MultiVisitWandbLogger(
+        names=args.tasks,
         save_interval=1,
         name=log_name.replace(os.path.sep, "__"),
         run_id=args.resume_id,
@@ -225,13 +228,12 @@ def test_rainbow(args=get_args()):
     writer = SummaryWriter(log_path)
     writer.add_text("args", str(args))
     logger.load(writer)
-
     for visit in range(args.num_visit):
         for i, task in enumerate(args.tasks):
-            print(f"Task {i}: {task}, visit {visit}")
-            logger.num_visit = visit
-            logger.name = task
-            rainbow(task, net, optim, policy, buffer, logger, log_path, i, args=args)
+            print(f"Visit ({visit + 1}/{args.num_visit}), {task} ({i+1}/{len(args.tasks)})")
+            logger.current_name = task
+            new_steps = rainbow(task, net, optim, policy, buffer, logger, log_path, args=args)
+            logger.add_base_step(task, new_steps)
 
 
 if __name__ == "__main__":
