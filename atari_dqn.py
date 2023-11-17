@@ -6,16 +6,16 @@ import sys
 
 import numpy as np
 import torch
-from atari_utils import DQN, make_atari_env
-from torch.utils.tensorboard import SummaryWriter
-
 from tianshou.data import Collector, VectorReplayBuffer
 from tianshou.policy import DQNPolicy
 from tianshou.policy.modelbased.icm import ICMPolicy
 from tianshou.trainer import OffpolicyTrainer
 from tianshou.utils import TensorboardLogger, WandbLogger
 from tianshou.utils.net.discrete import IntrinsicCuriosityModule
- 
+from torch.utils.tensorboard import SummaryWriter
+
+from src.utils import DQN, make_atari_env
+
 
 def get_args():
     parser = argparse.ArgumentParser()

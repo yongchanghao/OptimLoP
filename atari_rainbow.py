@@ -11,7 +11,7 @@ from tianshou.trainer import OffpolicyTrainer
 from tianshou.utils import WandbLogger
 from torch.utils.tensorboard import SummaryWriter
 
-from atari_utils import Rainbow, make_atari_env
+from src.utils import Rainbow, make_atari_env
 
 
 class MultiVisitWandbLogger(WandbLogger):
@@ -113,7 +113,6 @@ def get_args():
     parser.add_argument("--training-num", type=int, default=10)
     parser.add_argument("--test-num", type=int, default=10)
     parser.add_argument("--logdir", type=str, default="log")
-    parser.add_argument("--render", type=float, default=0.0)
     parser.add_argument("--num-visit", type=int, default=4)
     parser.add_argument(
         "--device",

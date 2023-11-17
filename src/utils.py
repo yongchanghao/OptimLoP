@@ -9,7 +9,8 @@ import numpy as np
 import torch
 from tianshou.env import ShmemVectorEnv
 from tianshou.utils.net.discrete import NoisyLinear
-from torch import nn
+from torch import Tensor, nn
+from torch.nn import functional as F
 
 try:
     import envpool
@@ -577,3 +578,11 @@ class QRDQN(DQN):
         obs, state = super().forward(obs)
         obs = obs.view(-1, self.action_num, self.num_quantiles)
         return obs, state
+
+
+class CReLU(torch.nn.ReLU):
+    """CReLU activation function"""
+
+    def forward(self, input: Tensor) -> Tensor:
+        half = input.shape[-1] // 2
+        return torch.cat((F.relu(input[:, :half]), F.relu(-input[:, half:])), dim=-1)
