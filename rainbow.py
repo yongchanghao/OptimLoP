@@ -71,7 +71,7 @@ def get_args():
     return parser.parse_args()
 
 
-def rainbow(task, net, optim, policy, buffer, logger, log_path, args=get_args()):
+def rainbow(task, policy, buffer, logger, log_path, args=get_args()):
     env, train_envs, test_envs = make_atari_env(
         task,
         args.seed,
@@ -232,7 +232,7 @@ def test_rainbow(args=get_args()):
         for i, task in enumerate(args.tasks):
             print(f"Visit ({visit + 1}/{args.num_visit}), {task} ({i+1}/{len(args.tasks)})")
             logger.current_name = task
-            new_steps = rainbow(task, net, optim, policy, buffer, logger, log_path, args=args)
+            new_steps = rainbow(task, policy, buffer, logger, log_path, args=args)
             logger.add_base_step(task, new_steps)
 
 
