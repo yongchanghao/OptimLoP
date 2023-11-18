@@ -16,7 +16,7 @@ from src.utils import MultiVisitWandbLogger, Rainbow, make_atari_env
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--tasks",
+        "tasks",
         type=str,
         nargs="+",
         default=[
@@ -141,10 +141,11 @@ def rainbow(task, policy, buffer, logger, log_path, args=get_args()):
     )
     result = trainer.run()
     pprint.pprint(result)
-    return trainer.env_step
+    return trainer.env_step, trainer.gradient_step
 
 
 def test_rainbow(args=get_args()):
+    print("Environments:", args.tasks)
     dummy_env, _, _ = make_atari_env(
         args.tasks[0],
         args.seed,
@@ -232,8 +233,9 @@ def test_rainbow(args=get_args()):
         for i, task in enumerate(args.tasks):
             print(f"Visit ({visit + 1}/{args.num_visit}), {task} ({i+1}/{len(args.tasks)})")
             logger.current_name = task
-            new_steps = rainbow(task, policy, buffer, logger, log_path, args=args)
-            logger.add_base_step(task, new_steps)
+            new_env_steps, new_grad_steps = rainbow(task, policy, buffer, logger, log_path, args=args)
+            logger.add_to_base_env_step(task, new_env_steps)
+            logger.add_to_base_grad_step(task, new_grad_steps)
 
 
 if __name__ == "__main__":

@@ -595,6 +595,7 @@ class MultiVisitWandbLogger(WandbLogger):
         self.names = names
         self.current_name = None
         self.base_env_steps = {name: 0 for name in names}
+        self.base_grad_steps = {name: 0 for name in names}
 
     @property
     def global_base_env_step(self):
@@ -604,8 +605,19 @@ class MultiVisitWandbLogger(WandbLogger):
     def task_base_env_step(self):
         return self.base_env_steps[self.current_name]
 
-    def add_base_step(self, name, step):
-        self.base_env_steps[name] = step
+    @property
+    def global_base_grad_step(self):
+        return sum(self.base_grad_steps.values())
+
+    @property
+    def task_base_grad_step(self):
+        return self.base_grad_steps[self.current_name]
+
+    def add_to_base_env_step(self, name, step):
+        self.base_env_steps[name] = step + self.base_env_steps.get(name, 0)
+
+    def add_to_base_grad_step(self, name, step):
+        self.base_grad_steps[name] = step + self.base_grad_steps.get(name, 0)
 
     def log_train_data(self, collect_result: dict, step: int) -> None:
         """Use writer to log statistics generated during training.
@@ -649,3 +661,18 @@ class MultiVisitWandbLogger(WandbLogger):
             }
             self.write("test/global_step", global_step, log_data)
             self.last_log_test_step = global_step
+
+    def log_update_data(self, update_result: dict, step: int) -> None:
+        """Use writer to log statistics generated during updating.
+
+        :param update_result: a dict containing information of data collected in
+            updating stage, i.e., returns of policy.update().
+        :param int step: stands for the timestep the collect_result being logged.
+        """
+        global_step = self.global_base_grad_step + step
+        task_step = self.task_base_grad_step + step
+        if global_step - self.last_log_update_step >= self.update_interval:
+            log_data = {f"update/{k}/{self.current_name}": v for k, v in update_result.items()}
+            log_data[f"update/task_step/{self.current_name}"] = task_step
+            self.write("update/gradient_step", global_step, log_data)
+            self.last_log_update_step = global_step
