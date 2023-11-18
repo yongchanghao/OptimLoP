@@ -136,7 +136,7 @@ def dqn(task, policy, buffer, logger, log_path, args=get_args()):
     )
     result = trainer.run()
     pprint.pprint(result)
-    return trainer.env_step
+    return trainer.env_step, trainer.gradient_step
 
 def test_DQN(args=get_args()):
     dummy_env, _, _ = make_atari_env(
@@ -215,9 +215,9 @@ def test_DQN(args=get_args()):
         for i, task in enumerate(args.tasks):
             print(f"Visit ({visit + 1}/{args.num_visit}), {task} ({i+1}/{len(args.tasks)})")
             logger.current_name = task
-            new_steps = dqn(task, policy, buffer, logger, log_path, args=args)
-            logger.add_base_step(task, new_steps)
-
+            new_env_steps, new_grad_steps = dqn(task, policy, buffer, logger, log_path, args=args)
+            logger.add_to_base_env_step(task, new_env_steps)
+            logger.add_to_base_grad_step(task, new_grad_steps)
 
 if __name__ == "__main__":
     test_DQN(get_args())
