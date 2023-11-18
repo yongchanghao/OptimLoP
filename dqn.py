@@ -24,7 +24,7 @@ def get_args():
             "Boxing-v5",
             "Breakout-v5",
         ],
-    )
+    ) 
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--scale-obs", type=int, default=0)
     parser.add_argument("--eps-test", type=float, default=0.005)
