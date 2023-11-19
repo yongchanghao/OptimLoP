@@ -2,8 +2,8 @@ import torch
 from torch.optim.optimizer import Optimizer
 
 
-class CAdam(Optimizer):
-    r"""Implements CAdam algorithm."""
+class CSGD(Optimizer):
+    r"""Implements CSGD algorithm."""
 
     def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
         """Initialize the hyperparameters.
