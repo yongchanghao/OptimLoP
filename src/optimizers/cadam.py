@@ -5,7 +5,7 @@ from torch.optim.optimizer import Optimizer
 class CAdam(Optimizer):
     r"""Implements CAdam algorithm."""
 
-    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99, 0.999), eps=1e-8, weight_decay=0.0):
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.9, 0.999), eps=1e-8, weight_decay=0.0):
         """Initialize the hyperparameters.
 
         Args:
@@ -13,7 +13,8 @@ class CAdam(Optimizer):
             parameter groups
           lr (float, optional): learning rate (default: 1e-4)
           betas (Tuple[float, float, float], optional): coefficients used for computing
-            running averages of gradient and its square (default: (0.9, 0.99, 0.999))
+            running averages of gradient and its square (default: (0.9, 0.9, 0.999))
+          eps (float, optional): term added to the denominator, default: 1e-8
           weight_decay (float, optional): weight decay coefficient (default: 0)
         """
 

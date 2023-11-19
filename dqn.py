@@ -10,6 +10,9 @@ from tianshou.policy import DQNPolicy
 from tianshou.trainer import OffpolicyTrainer
 from torch.utils.tensorboard import SummaryWriter
 
+from src.optimizers.cadam import CAdam
+from src.optimizers.csgd import CSGD
+from src.optimizers.lion import Lion
 from src.utils import MultiVisitWandbLogger, DQN, make_atari_env
 
  
@@ -65,6 +68,8 @@ def get_args():
     parser.add_argument("--resume-id", type=str, default=None)
     parser.add_argument("--wandb-project", type=str, default="atari.benchmark")
     parser.add_argument("--save-buffer-name", type=str, default=None)
+    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "csgd", "cadam", "lion"])
+    parser.add_argument("--beta0", type=float, default=0.9)
     return parser.parse_args()
 
 
@@ -158,7 +163,14 @@ def test_DQN(args=get_args()):
     torch.manual_seed(args.seed)
     # define model
     net = DQN(*args.state_shape, args.action_shape, args.device).to(args.device)
-    optim = torch.optim.Adam(net.parameters(), lr=args.lr)
+    if args.optimizer == "adam":
+        optim = torch.optim.Adam(net.parameters(), lr=args.lr, betas=(0.9, 0.999))
+    elif args.optimizer == "csgd":
+        optim = CSGD(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9))
+    elif args.optimizer == "cadam":
+        optim = CAdam(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9, 0.999))
+    elif args.optimizer == "lion":
+        optim = Lion(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9))
     # define policy
     policy = DQNPolicy(
         model=net,
@@ -174,37 +186,25 @@ def test_DQN(args=get_args()):
         print("Loaded agent from: ", args.resume_path)
     # replay buffer: `save_last_obs` and `stack_num` can be removed together
     # when you have enough RAM
-    if args.no_priority:
-        buffer = VectorReplayBuffer(
+    buffer = VectorReplayBuffer(
             args.buffer_size,
             buffer_num=args.training_num,
             ignore_obs_next=True,
             save_only_last_obs=True,
             stack_num=args.frames_stack,
-        )
-    else:
-        buffer = PrioritizedVectorReplayBuffer(
-            args.buffer_size,
-            buffer_num=args.training_num,
-            ignore_obs_next=True,
-            save_only_last_obs=True,
-            stack_num=args.frames_stack,
-            alpha=args.alpha,
-            beta=args.beta,
-            weight_norm=not args.no_weight_norm,
-        )
+    )
 
     # log
     now = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
     args.algo_name = "DQN"
-    log_name = os.path.join(args.algo_name, str(args.seed), now)
+    log_name = os.path.join(args.algo_name, args.optimizer, str(args.seed), now)
     log_path = os.path.join(args.logdir, log_name)
 
     # logger
     logger = MultiVisitWandbLogger(
         names=args.tasks,
         save_interval=1,
-        name=log_name.replace(os.path.sep, "__"),
+        name=log_name.replace(os.path.sep, "-"),
         run_id=args.resume_id,
         config=args,
         project=args.wandb_project,
