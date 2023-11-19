@@ -133,6 +133,7 @@ def dqn(task, policy, buffer, logger, log_path, args=get_args()):
         logger=logger,
         update_per_step=args.update_per_step,
         test_in_train=False,
+        show_progress=False
     )
     result = trainer.run()
     pprint.pprint(result)
