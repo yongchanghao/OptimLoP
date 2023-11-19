@@ -187,11 +187,11 @@ def test_DQN(args=get_args()):
     # replay buffer: `save_last_obs` and `stack_num` can be removed together
     # when you have enough RAM
     buffer = VectorReplayBuffer(
-            args.buffer_size,
-            buffer_num=args.training_num,
-            ignore_obs_next=True,
-            save_only_last_obs=True,
-            stack_num=args.frames_stack,
+        args.buffer_size,
+        buffer_num=args.training_num,
+        ignore_obs_next=True,
+        save_only_last_obs=True,
+        stack_num=args.frames_stack,
     )
 
     # log
