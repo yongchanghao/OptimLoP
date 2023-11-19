@@ -100,7 +100,6 @@ def dqn(task, policy, buffer, logger, log_path, args=get_args()):
 
     def train_fn(epoch, env_step):
         # nature DQN setting, linear decay in the first 1M steps
-        env_step += logger.global_base_env_step
         if env_step <= 1e6:
             eps = args.eps_train - env_step / 1e6 * (args.eps_train - args.eps_train_final)
         else:
@@ -108,14 +107,6 @@ def dqn(task, policy, buffer, logger, log_path, args=get_args()):
         policy.set_eps(eps)
         if env_step % 1000 == 0:
             logger.write("train/env_step", env_step, {"train/eps": eps})
-        if not args.no_priority:
-            if env_step <= args.beta_anneal_step:
-                beta = args.beta - env_step / args.beta_anneal_step * (args.beta - args.beta_final)
-            else:
-                beta = args.beta_final
-            buffer.set_beta(beta)
-            if env_step % 1000 == 0:
-                logger.write("train/env_step", env_step, {"train/beta": beta})
 
     def test_fn(epoch, env_step):
         policy.set_eps(args.eps_test)

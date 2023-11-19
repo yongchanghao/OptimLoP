@@ -10,6 +10,9 @@ from tianshou.policy import RainbowPolicy
 from tianshou.trainer import OffpolicyTrainer
 from torch.utils.tensorboard import SummaryWriter
 
+from src.optimizers.cadam import CAdam
+from src.optimizers.csgd import CSGD
+from src.optimizers.lion import Lion
 from src.utils import MultiVisitWandbLogger, Rainbow, make_atari_env
 
 
@@ -68,6 +71,8 @@ def get_args():
     parser.add_argument("--resume-id", type=str, default=None)
     parser.add_argument("--wandb-project", type=str, default="atari.benchmark")
     parser.add_argument("--save-buffer-name", type=str, default=None)
+    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "csgd", "cadam", "lion"])
+    parser.add_argument("--beta0", type=float, default=0.9)
     return parser.parse_args()
 
 
@@ -172,7 +177,14 @@ def test_rainbow(args=get_args()):
         is_dueling=not args.no_dueling,
         is_noisy=not args.no_noisy,
     )
-    optim = torch.optim.Adam(net.parameters(), lr=args.lr)
+    if args.optimizer == "adam":
+        optim = torch.optim.Adam(net.parameters(), lr=args.lr, betas=(0.9, 0.999))
+    elif args.optimizer == "csgd":
+        optim = CSGD(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9))
+    elif args.optimizer == "cadam":
+        optim = CAdam(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9, 0.999))
+    elif args.optimizer == "lion":
+        optim = Lion(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9))
     # define policy
     policy = RainbowPolicy(
         model=net,
@@ -214,14 +226,14 @@ def test_rainbow(args=get_args()):
     # log
     now = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
     args.algo_name = "rainbow"
-    log_name = os.path.join(args.algo_name, str(args.seed), now)
+    log_name = os.path.join(args.algo_name, args.optimizer, str(args.seed), now)
     log_path = os.path.join(args.logdir, log_name)
 
     # logger
     logger = MultiVisitWandbLogger(
         names=args.tasks,
         save_interval=1,
-        name=log_name.replace(os.path.sep, "__"),
+        name=log_name.replace(os.path.sep, "-"),
         run_id=args.resume_id,
         config=args,
         project=args.wandb_project,
