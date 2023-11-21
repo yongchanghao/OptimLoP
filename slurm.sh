@@ -11,4 +11,4 @@ module load gcc/9.3.0 cuda/11.8.0 cudacore/.11.8.0 cudnn/8.6.0.163 arrow/10.0.1 
 
 pip install -r requirements.txt 
 
-python rainbow.py --optimizer=cadam --beta0 0.6 
+python rainbow.py Alien-v5 Boxing-v5 Breakout-v5 --optimizer=cadam --beta0 0.6 
