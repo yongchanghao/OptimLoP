@@ -100,6 +100,7 @@ def dqn(task, policy, buffer, logger, log_path, args=get_args()):
 
     def train_fn(epoch, env_step):
         # nature DQN setting, linear decay in the first 1M steps
+        env_step += logger.global_base_env_step
         if env_step <= 1e6:
             eps = args.eps_train - env_step / 1e6 * (args.eps_train - args.eps_train_final)
         else:
