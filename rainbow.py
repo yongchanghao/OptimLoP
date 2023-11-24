@@ -69,7 +69,7 @@ def get_args():
     parser.add_argument("--resume-id", type=str, default=None)
     parser.add_argument("--wandb-project", type=str, default="atari.benchmark")
     parser.add_argument("--save-buffer-name", type=str, default=None)
-    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "csgd", "cadam", "lion"])
+    parser.add_argument("--optimizer", type=str, default="adam")
     parser.add_argument("--beta0", type=float, default=0.9)
     return parser.parse_args()
 
@@ -101,6 +101,15 @@ def rainbow(task, policy, buffer, logger, log_path, args=get_args()):
         return False
 
     def train_fn(epoch, env_step):
+        def gn(model):
+            total_norm = 0.0
+            for p in model.parameters():
+                if p.grad is None:
+                    continue
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            return total_norm ** (1.0 / 2)
+
         # nature DQN setting, linear decay in the first 1M steps
         env_step += logger.global_base_env_step
         if env_step <= 1e6:
@@ -108,6 +117,11 @@ def rainbow(task, policy, buffer, logger, log_path, args=get_args()):
         else:
             eps = args.eps_train_final
         policy.set_eps(eps)
+        logger.write(
+            "train/env_step",
+            env_step,
+            {"train/grad_norm": gn(policy.model)},
+        )
         if env_step % 1000 == 0:
             logger.write("train/env_step", env_step, {"train/eps": eps})
         if not args.no_priority:
