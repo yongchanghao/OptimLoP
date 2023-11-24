@@ -13,7 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.optimizers.cadam import CAdam
 from src.optimizers.csgd import CSGD
 from src.optimizers.lion import Lion
-from src.utils import MultiVisitWandbLogger, Rainbow, make_atari_env
+from src.utils import MultiVisitWandbLogger, Rainbow, make_atari_env, CReLURainbow
 
 
 def get_args():
@@ -71,6 +71,7 @@ def get_args():
     parser.add_argument("--save-buffer-name", type=str, default=None)
     parser.add_argument("--optimizer", type=str, default="adam")
     parser.add_argument("--beta0", type=float, default=0.9)
+    parser.add_argument("--crelu", action="store_true", default=False)
     return parser.parse_args()
 
 
@@ -180,15 +181,26 @@ def test_rainbow(args=get_args()):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     # define model
-    net = Rainbow(
-        *args.state_shape,
-        args.action_shape,
-        args.num_atoms,
-        args.noisy_std,
-        args.device,
-        is_dueling=not args.no_dueling,
-        is_noisy=not args.no_noisy,
-    )
+    if args.crelu == False:
+        net = Rainbow(
+            *args.state_shape,
+            args.action_shape,
+            args.num_atoms,
+            args.noisy_std,
+            args.device,
+            is_dueling=not args.no_dueling,
+            is_noisy=not args.no_noisy,
+        )
+    else:
+        net = CReLURainbow(
+            *args.state_shape,
+            args.action_shape,
+            args.num_atoms,
+            args.noisy_std,
+            args.device,
+            is_dueling=not args.no_dueling,
+            is_noisy=not args.no_noisy,
+        )
     if args.optimizer == "adam":
         optim = torch.optim.Adam(net.parameters(), lr=args.lr, betas=(0.9, 0.999))
     elif args.optimizer == "csgd":
