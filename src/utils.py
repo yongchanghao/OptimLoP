@@ -583,8 +583,10 @@ class QRDQN(DQN):
 
 class CReLU(torch.nn.ReLU):
     """CReLU activation function"""
-
-    dim: int = -1
+    def __init__(self, dim, inplace):
+        super().__init__()
+        self.dim = dim
+        self.inplace = inplace
 
     def forward(self, input: Tensor) -> Tensor:
         positive = F.relu(input, inplace=self.inplace)
@@ -681,7 +683,7 @@ class MultiVisitWandbLogger(WandbLogger):
             self.last_log_update_step = global_step
 
 
-class CReLUDQN(DQN):
+class CReLUDQN(nn.Module):
     """Reference: Human-level control through deep reinforcement learning.
 
     For advanced usage (how to customize the network), please refer to
@@ -782,3 +784,24 @@ class CReLURainbow(CReLUDQN):
                 linear(512 * 2, self.num_atoms),
             )
         self.output_dim = self.action_num * self.num_atoms * 2
+
+    def forward(
+        self,
+        obs: np.ndarray | torch.Tensor,
+        state: Any | None = None,
+        info: dict[str, Any] | None = None,
+    ) -> tuple[torch.Tensor, Any]:
+        r"""Mapping: x -> Z(x, \*)."""
+        if info is None:
+            info = {}
+        obs, state = super().forward(obs)
+        q = self.Q(obs)
+        q = q.view(-1, self.action_num, self.num_atoms)
+        if self._is_dueling:
+            v = self.V(obs)
+            v = v.view(-1, 1, self.num_atoms)
+            logits = q - q.mean(dim=1, keepdim=True) + v
+        else:
+            logits = q
+        probs = logits.softmax(dim=2)
+        return probs, state
