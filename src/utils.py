@@ -741,7 +741,7 @@ class CReLUDQN(DQN):
         return self.net(obs), state
 
 
-class CReLURainbow(Rainbow):
+class CReLURainbow(CReLUDQN):
     """Reference: Rainbow: Combining Improvements in Deep Reinforcement Learning.
 
     For advanced usage (how to customize the network), please refer to
@@ -760,7 +760,7 @@ class CReLURainbow(Rainbow):
         is_dueling: bool = True,
         is_noisy: bool = True,
     ) -> None:
-        super().__init__(c, h, w, action_shape, num_atoms, noisy_std, device, is_dueling, is_noisy)
+        super().__init__(c, h, w, action_shape, device, features_only=True)
         self.action_num = np.prod(action_shape)
         self.num_atoms = num_atoms
 
