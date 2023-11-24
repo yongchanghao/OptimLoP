@@ -24,10 +24,8 @@ def get_args():
         nargs="+",
         default=[
             "Alien-v5",
-            "Atlantis-v5",
             "Boxing-v5",
             "Breakout-v5",
-            "Centipede-v5",
         ],
     )
     parser.add_argument("--seed", type=int, default=0)
@@ -35,7 +33,7 @@ def get_args():
     parser.add_argument("--eps-test", type=float, default=0.005)
     parser.add_argument("--eps-train", type=float, default=1.0)
     parser.add_argument("--eps-train-final", type=float, default=0.05)
-    parser.add_argument("--buffer-size", type=int, default=100000)
+    parser.add_argument("--buffer-size", type=int, default=50000)
     parser.add_argument("--lr", type=float, default=0.0000625)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--num-atoms", type=int, default=51)
@@ -53,7 +51,7 @@ def get_args():
     parser.add_argument("--n-step", type=int, default=3)
     parser.add_argument("--target-update-freq", type=int, default=500)
     parser.add_argument("--epoch", type=int, default=100)
-    parser.add_argument("--step-per-epoch", type=int, default=100000)
+    parser.add_argument("--step-per-epoch", type=int, default=50000)
     parser.add_argument("--step-per-collect", type=int, default=10)
     parser.add_argument("--update-per-step", type=float, default=0.1)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -71,7 +69,7 @@ def get_args():
     parser.add_argument("--resume-id", type=str, default=None)
     parser.add_argument("--wandb-project", type=str, default="atari.benchmark")
     parser.add_argument("--save-buffer-name", type=str, default=None)
-    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "csgd", "cadam", "lion"])
+    parser.add_argument("--optimizer", type=str, default="adam")
     parser.add_argument("--beta0", type=float, default=0.9)
     return parser.parse_args()
 
@@ -103,6 +101,15 @@ def rainbow(task, policy, buffer, logger, log_path, args=get_args()):
         return False
 
     def train_fn(epoch, env_step):
+        def gn(model):
+            total_norm = 0.0
+            for p in model.parameters():
+                if p.grad is None:
+                    continue
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+            return total_norm ** (1.0 / 2)
+
         # nature DQN setting, linear decay in the first 1M steps
         env_step += logger.global_base_env_step
         if env_step <= 1e6:
@@ -110,6 +117,11 @@ def rainbow(task, policy, buffer, logger, log_path, args=get_args()):
         else:
             eps = args.eps_train_final
         policy.set_eps(eps)
+        logger.write(
+            "train/env_step",
+            env_step,
+            {"train/grad_norm": gn(policy.model)},
+        )
         if env_step % 1000 == 0:
             logger.write("train/env_step", env_step, {"train/eps": eps})
         if not args.no_priority:

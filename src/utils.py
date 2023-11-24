@@ -584,9 +584,12 @@ class QRDQN(DQN):
 class CReLU(torch.nn.ReLU):
     """CReLU activation function"""
 
+    dim: int = -1
+
     def forward(self, input: Tensor) -> Tensor:
-        half = input.shape[-1] // 2
-        return torch.cat((F.relu(input[:, :half]), F.relu(-input[:, half:])), dim=-1)
+        positive = F.relu(input, inplace=self.inplace)
+        negative = F.relu(-input, inplace=self.inplace)
+        return torch.cat((positive, negative), dim=self.dim)
 
 
 class MultiVisitWandbLogger(WandbLogger):
@@ -676,3 +679,106 @@ class MultiVisitWandbLogger(WandbLogger):
             log_data[f"update/task_step/{self.current_name}"] = task_step
             self.write("update/gradient_step", global_step, log_data)
             self.last_log_update_step = global_step
+
+
+class CReLUDQN(DQN):
+    """Reference: Human-level control through deep reinforcement learning.
+
+    For advanced usage (how to customize the network), please refer to
+    :ref:`build_the_network`.
+    """
+
+    def __init__(
+        self,
+        c: int,
+        h: int,
+        w: int,
+        action_shape: Sequence[int],
+        device: str | int | torch.device = "cpu",
+        features_only: bool = False,
+        output_dim: int | None = None,
+        layer_init: Callable[[nn.Module], nn.Module] = lambda x: x,
+    ) -> None:
+        super().__init__()
+        self.device = device
+        self.net = nn.Sequential(
+            layer_init(nn.Conv2d(c, 32, kernel_size=8, stride=4)),
+            CReLU(dim=1, inplace=True),
+            layer_init(nn.Conv2d(32 * 2, 64, kernel_size=4, stride=2)),
+            CReLU(dim=1, inplace=True),
+            layer_init(nn.Conv2d(64 * 2, 64, kernel_size=3, stride=1)),
+            CReLU(dim=1, inplace=True),
+            nn.Flatten(),
+        )
+        with torch.no_grad():
+            self.output_dim = int(np.prod(self.net(torch.zeros(1, c, h, w)).shape[1:]))
+        if not features_only:
+            self.net = nn.Sequential(
+                self.net,
+                layer_init(nn.Linear(self.output_dim, 512)),
+                CReLU(dim=-1, inplace=True),
+                layer_init(nn.Linear(512 * 2, int(np.prod(action_shape)))),
+            )
+            self.output_dim = np.prod(action_shape)
+        elif output_dim is not None:
+            self.net = nn.Sequential(
+                self.net,
+                layer_init(nn.Linear(self.output_dim, output_dim)),
+                CReLU(inplace=True),
+            )
+            self.output_dim = output_dim * 2
+
+    def forward(
+        self,
+        obs: np.ndarray | torch.Tensor,
+        state: Any | None = None,
+        info: dict[str, Any] | None = None,
+    ) -> tuple[torch.Tensor, Any]:
+        r"""Mapping: s -> Q(s, \*)."""
+        if info is None:
+            info = {}
+        obs = torch.as_tensor(obs, device=self.device, dtype=torch.float32)
+        return self.net(obs), state
+
+
+class CReLURainbow(Rainbow):
+    """Reference: Rainbow: Combining Improvements in Deep Reinforcement Learning.
+
+    For advanced usage (how to customize the network), please refer to
+    :ref:`build_the_network`.
+    """
+
+    def __init__(
+        self,
+        c: int,
+        h: int,
+        w: int,
+        action_shape: Sequence[int],
+        num_atoms: int = 51,
+        noisy_std: float = 0.5,
+        device: str | int | torch.device = "cpu",
+        is_dueling: bool = True,
+        is_noisy: bool = True,
+    ) -> None:
+        super().__init__(c, h, w, action_shape, num_atoms, noisy_std, device, is_dueling, is_noisy)
+        self.action_num = np.prod(action_shape)
+        self.num_atoms = num_atoms
+
+        def linear(x, y):
+            if is_noisy:
+                return NoisyLinear(x, y, noisy_std)
+            return nn.Linear(x, y)
+
+        self.Q = nn.Sequential(
+            linear(self.output_dim, 512),
+            CReLU(dim=-1, inplace=True),
+            linear(512 * 2, self.action_num * self.num_atoms),
+        )
+        self._is_dueling = is_dueling
+        if self._is_dueling:
+            self.V = nn.Sequential(
+                linear(self.output_dim, 512),
+                CReLU(dim=-1, inplace=True),
+                linear(512 * 2, self.num_atoms),
+            )
+        self.output_dim = self.action_num * self.num_atoms * 2
