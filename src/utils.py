@@ -1,15 +1,16 @@
 import warnings
 from collections import deque
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Dict
 
 import cv2
 import gymnasium as gym
 import numpy as np
 import torch
 from tianshou.env import ShmemVectorEnv
-from tianshou.utils.net.discrete import NoisyLinear
+from tianshou.trainer import OffpolicyTrainer
 from tianshou.utils import WandbLogger
+from tianshou.utils.net.discrete import NoisyLinear
 from torch import Tensor, nn
 from torch.nn import functional as F
 
@@ -782,3 +783,35 @@ class CReLURainbow(Rainbow):
                 linear(512 * 2, self.num_atoms),
             )
         self.output_dim = self.action_num * self.num_atoms * 2
+
+
+class OurOffpolicyTrainer(OffpolicyTrainer):
+    def policy_update_fn(self, data: Dict[str, Any], result: Dict[str, Any]) -> None:
+        def norm(last_params, model, ord):
+            total_norm = 0.0
+            for last_p, p in zip(last_params, model.parameters()):
+                if ord == 0:
+                    param_norm = torch.count_nonzero(p - last_p)
+                elif ord > 0.0:
+                    param_norm = torch.linalg.vector_norm(p - last_p, ord) ** ord
+                total_norm += param_norm.item()
+            if ord > 0.0:
+                total_norm = total_norm ** (1.0 / ord)
+            return total_norm
+
+        """Perform off-policy updates."""
+        assert self.train_collector is not None
+        for _ in range(round(self.update_per_step * result["n/st"])):
+            self.gradient_step += 1
+            last_params = [p.clone() for p in self.policy.model.parameters()]
+            losses = self.policy.update(self.batch_size, self.train_collector.buffer)
+
+            losses.update(
+                {
+                    "update_norm_l0": norm(last_params, self.policy.model, 0.0),
+                    "update_norm_l1": norm(last_params, self.policy.model, 1.0),
+                    "update_norm_l2": norm(last_params, self.policy.model, 2.0),
+                }
+            )
+
+            self.log_update_data(data, losses)

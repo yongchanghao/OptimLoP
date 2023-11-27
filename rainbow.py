@@ -7,13 +7,17 @@ import numpy as np
 import torch
 from tianshou.data import Collector, PrioritizedVectorReplayBuffer, VectorReplayBuffer
 from tianshou.policy import RainbowPolicy
-from tianshou.trainer import OffpolicyTrainer
 from torch.utils.tensorboard import SummaryWriter
 
 from src.optimizers.cadam import CAdam
 from src.optimizers.csgd import CSGD
 from src.optimizers.lion import Lion
-from src.utils import MultiVisitWandbLogger, Rainbow, make_atari_env
+from src.utils import (
+    MultiVisitWandbLogger,
+    OurOffpolicyTrainer,
+    Rainbow,
+    make_atari_env,
+)
 
 
 def get_args():
@@ -101,14 +105,19 @@ def rainbow(task, policy, buffer, logger, log_path, args=get_args()):
         return False
 
     def train_fn(epoch, env_step):
-        def gn(model):
+        def norm(model, ord):
             total_norm = 0.0
             for p in model.parameters():
                 if p.grad is None:
                     continue
-                param_norm = p.grad.data.norm(2)
-                total_norm += param_norm.item() ** 2
-            return total_norm ** (1.0 / 2)
+                if ord == 0:
+                    param_norm = torch.count_nonzero(p.grad.data)
+                elif ord > 0.0:
+                    param_norm = torch.linalg.vector_norm(p.grad.data, ord) ** ord
+                total_norm += param_norm.item()
+            if ord > 0.0:
+                total_norm = total_norm ** (1.0 / ord)
+            return total_norm
 
         # nature DQN setting, linear decay in the first 1M steps
         env_step += logger.global_base_env_step
@@ -120,7 +129,11 @@ def rainbow(task, policy, buffer, logger, log_path, args=get_args()):
         logger.write(
             "train/env_step",
             env_step,
-            {"train/grad_norm": gn(policy.model)},
+            {
+                "train/grad_norm_l0": norm(policy.model, 0),
+                "train/grad_norm_l1": norm(policy.model, 1),
+                "train/grad_norm_l2": norm(policy.model, 2),
+            },
         )
         if env_step % 1000 == 0:
             logger.write("train/env_step", env_step, {"train/eps": eps})
@@ -139,7 +152,7 @@ def rainbow(task, policy, buffer, logger, log_path, args=get_args()):
     # test train_collector and start filling replay buffer
     train_collector.collect(n_step=args.batch_size * args.training_num)
     # trainer
-    trainer = OffpolicyTrainer(
+    trainer = OurOffpolicyTrainer(
         policy=policy,
         train_collector=train_collector,
         test_collector=test_collector,
