@@ -12,6 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.optimizers.cadam import CAdam
 from src.optimizers.csgd import CSGD
 from src.optimizers.lion import Lion
+from src.optimizers.noiseadam import NoiseAdam
 from src.utils import (
     MultiVisitWandbLogger,
     OurOffpolicyTrainer,
@@ -23,7 +24,7 @@ from src.utils import (
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "tasks",
+        "--tasks",
         type=str,
         nargs="+",
         default=[
@@ -204,6 +205,8 @@ def test_rainbow(args=get_args()):
     )
     if args.optimizer == "adam":
         optim = torch.optim.Adam(net.parameters(), lr=args.lr, betas=(0.9, 0.999))
+    elif args.optimizer == "noiseadam":
+        optim = NoiseAdam(net.parameters(), lr=args.lr, betas=(0.9, 0.999))
     elif args.optimizer == "csgd":
         optim = CSGD(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9))
     elif args.optimizer == "cadam":

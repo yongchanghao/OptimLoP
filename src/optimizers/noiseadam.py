@@ -2,10 +2,10 @@ import torch
 from torch.optim.optimizer import Optimizer
 
 
-class Lion(Optimizer):
+class NoiseAdam(Optimizer):
     r"""Implements Lion algorithm."""
 
-    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0):
         """Initialize the hyperparameters.
 
         Args:
@@ -23,7 +23,7 @@ class Lion(Optimizer):
             raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
         if not 0.0 <= betas[1] < 1.0:
             raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
-        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -56,16 +56,26 @@ class Lion(Optimizer):
                 if len(state) == 0:
                     # Exponential moving average of gradient values
                     state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                    state["step"] = 0
 
-                exp_avg = state["exp_avg"]
                 beta1, beta2 = group["betas"]
+                eps = group["eps"]
+                
+                # Add noise to the gradient and scale it back to its original norm
+                grad_norm = grad.norm()
+                noise = torch.randn_like(grad)
+                noisy_grad = grad + noise
+                noisy_grad = noisy_grad * (grad_norm / (noisy_grad.norm() + eps))
 
-                # Weight update
-                update = exp_avg * beta1 + grad * (1 - beta1)
+                state["step"] += 1
+                state["exp_avg"].mul_(beta1).add_(noisy_grad, alpha=1 - beta1)
+                state["exp_avg_sq"].mul_(beta2).addcmul_(noisy_grad, noisy_grad, value=1 - beta2)
 
-                p.add_(update.sign_(), alpha=-group["lr"])
-
-                # Decay the momentum running average coefficient
-                exp_avg.mul_(beta2).add_(grad, alpha=1 - beta2)
+                # original adam:
+                updates = state["exp_avg"] / (1 - beta1 ** state["step"])
+                denom = state["exp_avg_sq"] / (1 - beta2 ** state["step"])
+                denom.sqrt_().add_(eps)
+                p.addcdiv_(updates, denom, value=-group["lr"])
 
         return loss
