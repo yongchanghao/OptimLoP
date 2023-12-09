@@ -52,10 +52,6 @@ class CAdamNoise(Optimizer):
 
                 # Perform stepweight decay
                 p.data.mul_(1 - group["lr"] * group["weight_decay"])
-
-                
-                b = torch.randn_like(p.grad)
-                grad = torch.linalg.norm(p.grad) * b / torch.linalg.norm(b) 
                 state = self.state[p]
                 # State initialization
                 if len(state) == 0:
@@ -66,7 +62,7 @@ class CAdamNoise(Optimizer):
 
                 beta0, beta1, beta2 = group["betas"]
                 eps = group["eps"]
-
+                grad = p.grad
                 state["step"] += 1
                 state["exp_avg"].mul_(beta1).add_(grad, alpha=1 - beta1)
                 state["exp_avg_sq"].mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
@@ -78,11 +74,13 @@ class CAdamNoise(Optimizer):
                 # p.addcdiv_(updates, denom, value=-group["lr"])
 
                 # our version:
+                noise = torch.randn_like(p.grad)
+                noise *= torch.linalg.norm(p.grad) / torch.linalg.norm(noise)
                 updates = state["exp_avg"] / (1 - beta1 ** state["step"])
-                updates.mul_(beta0).add_(grad, alpha=(1 - beta0))
+                updates.mul_(beta0).add_(noise, alpha=(1 - beta0))
 
                 denom = state["exp_avg_sq"] / (1 - beta2 ** state["step"])
-                denom.mul_(beta0).add_(grad * grad, alpha=(1 - beta0))
+                denom.mul_(beta0).add_(noise * noise, alpha=(1 - beta0))
                 denom.sqrt_().add_(eps)
 
                 p.addcdiv_(updates, denom, value=-group["lr"])

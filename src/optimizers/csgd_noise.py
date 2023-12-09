@@ -2,7 +2,7 @@ import torch
 from torch.optim.optimizer import Optimizer
 
 
-class CSGD(Optimizer):
+class CSGDNoise(Optimizer):
     r"""Implements CSGD algorithm."""
 
     def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
@@ -50,8 +50,8 @@ class CSGD(Optimizer):
                 # Perform stepweight decay
                 p.data.mul_(1 - group["lr"] * group["weight_decay"])
 
-                b = torch.randn_like(p.grad)
-                grad = torch.linalg.norm(p.grad) * b / torch.linalg.norm(b) 
+                grad = p.grad
+
                 state = self.state[p]
                 # State initialization
                 if len(state) == 0:
@@ -65,10 +65,11 @@ class CSGD(Optimizer):
                 # original sgd:
                 # updates = state["exp_avg"]
                 # p.add_(updates, alpha=-group["lr"])
-
+                noise = torch.randn_like(p.grad)
+                noise *= torch.linalg.norm(p.grad) / torch.linalg.norm(noise)
                 # our version:
                 updates = state["exp_avg"]
-                updates.mul_(beta0).add_(grad, alpha=1 - beta0)
+                updates.mul_(beta0).add_(noise, alpha=1 - beta0)
                 p.add_(updates, alpha=-group["lr"])
 
         return loss

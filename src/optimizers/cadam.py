@@ -80,7 +80,7 @@ class CAdam(Optimizer):
                 updates.mul_(beta0).add_(grad, alpha=(1 - beta0))
 
                 denom = state["exp_avg_sq"] / (1 - beta2 ** state["step"])
-                denom.mul_(beta0).add_(grad * grad, alpha=(1 - beta0))
+                denom.mul_(beta0).addcmul_(grad, grad, value=(1 - beta0))
                 denom.sqrt_().add_(eps)
 
                 p.addcdiv_(updates, denom, value=-group["lr"])
