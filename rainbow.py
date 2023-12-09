@@ -9,9 +9,11 @@ from tianshou.data import Collector, PrioritizedVectorReplayBuffer, VectorReplay
 from tianshou.policy import RainbowPolicy
 from torch.utils.tensorboard import SummaryWriter
 
+from src.optimizers.cadam_noise import CAdamNoise
 from src.optimizers.cadam import CAdam
 from src.optimizers.csgd import CSGD
 from src.optimizers.lion import Lion
+from src.optimizers.csgd_noise import CSGDNoise
 from src.utils import (
     MultiVisitWandbLogger,
     OurOffpolicyTrainer,
@@ -210,6 +212,10 @@ def test_rainbow(args=get_args()):
         optim = CAdam(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9, 0.999))
     elif args.optimizer == "lion":
         optim = Lion(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9))
+    elif args.optimizer == "cadam_noise":
+        optim = CAdamNoise(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9, 0.999))
+    elif args.optimizer == "csgd_noise":
+        optim = CSGDNoise(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9))
     # define policy
     policy = RainbowPolicy(
         model=net,
