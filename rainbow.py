@@ -74,9 +74,11 @@ def get_args():
     parser.add_argument("--resume-path", type=str, default=None)
     parser.add_argument("--resume-id", type=str, default=None)
     parser.add_argument("--wandb-project", type=str, default="atari.benchmark")
+    parser.add_argument("--wandb-entity", type=str, default="clean-rl")
     parser.add_argument("--save-buffer-name", type=str, default=None)
     parser.add_argument("--optimizer", type=str, default="adam")
     parser.add_argument("--beta0", type=float, default=0.9)
+    parser.add_argument("--momentum", type=float, default=0.9)
     return parser.parse_args()
 
 
@@ -128,15 +130,15 @@ def rainbow(task, policy, buffer, logger, log_path, args=get_args()):
         else:
             eps = args.eps_train_final
         policy.set_eps(eps)
-        logger.write(
-            "train/env_step",
-            env_step,
-            {
-                "train/grad_norm_l0": norm(policy.model, 0),
-                "train/grad_norm_l1": norm(policy.model, 1),
-                "train/grad_norm_l2": norm(policy.model, 2),
-            },
-        )
+        # logger.write(
+        #     "train/env_step",
+        #     env_step,
+        #     {
+        #         "train/grad_norm_l0": norm(policy.model, 0),
+        #         "train/grad_norm_l1": norm(policy.model, 1),
+        #         "train/grad_norm_l2": norm(policy.model, 2),
+        #     },
+        # )
         if env_step % 1000 == 0:
             logger.write("train/env_step", env_step, {"train/eps": eps})
         if not args.no_priority:
@@ -205,17 +207,17 @@ def test_rainbow(args=get_args()):
         is_noisy=not args.no_noisy,
     )
     if args.optimizer == "adam":
-        optim = torch.optim.Adam(net.parameters(), lr=args.lr, betas=(0.9, 0.999))
+        optim = torch.optim.Adam(net.parameters(), lr=args.lr, betas=(args.momentum, 0.999))
     elif args.optimizer == "csgd":
-        optim = CSGD(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9))
+        optim = CSGD(net.parameters(), lr=args.lr, betas=(args.beta0, args.momentum))
     elif args.optimizer == "cadam":
-        optim = CAdam(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9, 0.999))
+        optim = CAdam(net.parameters(), lr=args.lr, betas=(args.beta0, args.momentum, 0.999))
     elif args.optimizer == "lion":
-        optim = Lion(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9))
+        optim = Lion(net.parameters(), lr=args.lr, betas=(args.beta0, args.momentum))
     elif args.optimizer == "cadam_noise":
-        optim = CAdamNoise(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9, 0.999))
+        optim = CAdamNoise(net.parameters(), lr=args.lr, betas=(args.beta0, args.momentum, 0.999))
     elif args.optimizer == "csgd_noise":
-        optim = CSGDNoise(net.parameters(), lr=args.lr, betas=(args.beta0, 0.9))
+        optim = CSGDNoise(net.parameters(), lr=args.lr, betas=(args.beta0, args.momentum))
     # define policy
     policy = RainbowPolicy(
         model=net,
@@ -268,6 +270,7 @@ def test_rainbow(args=get_args()):
         run_id=args.resume_id,
         config=args,
         project=args.wandb_project,
+        entity=args.wandb_entity,
     )
     writer = SummaryWriter(log_path)
     writer.add_text("args", str(args))

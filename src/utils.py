@@ -803,15 +803,15 @@ class OurOffpolicyTrainer(OffpolicyTrainer):
         assert self.train_collector is not None
         for _ in range(round(self.update_per_step * result["n/st"])):
             self.gradient_step += 1
-            last_params = [p.clone() for p in self.policy.model.parameters()]
+            # last_params = [p.clone() for p in self.policy.model.parameters()]
             losses = self.policy.update(self.batch_size, self.train_collector.buffer)
 
-            losses.update(
-                {
-                    "update_norm_l0": norm(last_params, self.policy.model, 0.0),
-                    "update_norm_l1": norm(last_params, self.policy.model, 1.0),
-                    "update_norm_l2": norm(last_params, self.policy.model, 2.0),
-                }
-            )
+            # losses.update(
+                # {
+                    # "update_norm_l0": norm(last_params, self.policy.model, 0.0),
+                    # "update_norm_l1": norm(last_params, self.policy.model, 1.0),
+                    # "update_norm_l2": norm(last_params, self.policy.model, 2.0),
+                # }
+            # )
 
             self.log_update_data(data, losses)
